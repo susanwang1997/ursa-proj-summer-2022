@@ -1,5 +1,5 @@
-#ifndef GRAPH_HH
-#define GRAPH_HH
+#ifndef NEWGRAPH_HH
+#define NEWGRAPH_HH
 
 #include <execution>
 #include <map>
@@ -14,8 +14,7 @@
 #include "utils.hh"
 #include "./bliss-0.73/graph.hh"
 
-
-namespace Peregrine
+namespace NewGraph
 {
 
   // forward declaration to allow friendship with SmallGraph
@@ -37,11 +36,11 @@ namespace Peregrine
   {
     private:
       friend class AnalyzedPattern;
-      friend struct ::Peregrine::PatternGenerator;
-      friend class ::Peregrine::DataGraph;
+      friend struct ::NewGraph::PatternGenerator;
+      friend class ::NewGraph::DataGraph;
       std::unordered_map<uint32_t, std::vector<uint32_t>> true_adj_list;
       std::unordered_map<uint32_t, std::vector<uint32_t>> anti_adj_list;
-      std::vector<uint32_t> labels;
+      std::unordered_map<uint32_t, std::vector<uint32_t>> labels;
       Graph::Labelling labelling = Graph::UNLABELLED;
     public:
       friend std::ostream &operator<<(std::ostream &os, const SmallGraph &p)
@@ -103,10 +102,10 @@ namespace Peregrine
         std::vector<uint32_t> vs;
         for (const auto &[v, adj] : true_adj_list)
         {
-          if (!adj.empty())
-          {
+          //if (!adj.empty()) //I commented this section out to so that graphs with multiple single vertices can be included
+          //{
             vs.push_back(v);
-          }
+          //}
         }
 
         // if the pattern consists of a single vertex
@@ -123,14 +122,14 @@ namespace Peregrine
         return vs;
       }
 
-      const std::vector<uint32_t> &get_labels() const
+      const std::unordered_map<uint32_t, std::vector<uint32_t>> &get_labels() const
       {
         return labels;
       }
 
-      uint32_t label(uint32_t qv) const
+      std::vector<uint32_t> label(uint32_t qv) const
       {
-        return labels[qv-1];
+        return labels.at(qv);
       }
 
       void set_labelling(Graph::Labelling l)
@@ -148,9 +147,9 @@ namespace Peregrine
         bliss::Graph bliss_qg;
         if (use_labels && labelling != Graph::UNLABELLED && labelling != Graph::DISCOVER_LABELS)
         {
-          for (size_t i = 0; i < num_vertices(); i++)
+          for (auto v: v_list())
           {
-              bliss_qg.add_vertex(labels[i]);
+              bliss_qg.add_vertex(labels.at(v)[0]); // TODO: Need to modify this to support vertices with multiple labels rather than just one
           }
         }
         else
@@ -191,12 +190,12 @@ namespace Peregrine
         {
           for (uint32_t u = 1; u <= num_vertices(); ++u)
           {
-            uint32_t l1 = label(u);
+            uint32_t l1 = label(u)[0]; // TODO: Need to modify this to support vertices with multiple labels rather than just one
             const auto &nbrs = true_adj_list.at(u);
             for (auto v : nbrs)
             {
               if (u > v) continue;
-              uint32_t l2 = label(v);
+              uint32_t l2 = label(v)[0]; // TODO: Need to modify this to support vertices with multiple labels rather than just one
               res += "[";
               res += std::to_string(u) + "," + std::to_string(l1);
               res += "-";
@@ -208,7 +207,7 @@ namespace Peregrine
             for (auto v : anbrs)
             {
               if (u > v) continue;
-              uint32_t l2 = label(v);
+              uint32_t l2 = label(v)[0]; ////only adds first label of a vertex, may need to change this later
               res += "(";
               res += std::to_string(u) + "," + std::to_string(l1);
               res += "~";
@@ -249,7 +248,7 @@ namespace Peregrine
 
       SmallGraph() {}
 
-      SmallGraph(const SmallGraph &other, const std::vector<uint32_t> &labels)
+      SmallGraph(const SmallGraph &other, const std::unordered_map<uint32_t,std::vector<uint32_t>> &labels)
         : true_adj_list(other.true_adj_list),
           anti_adj_list(other.anti_adj_list),
           labels(labels),
@@ -264,9 +263,9 @@ namespace Peregrine
           Graph::Labelling l = Graph::LABELLED;
 
           uint32_t v = 1;
-          for (uint32_t l : labels)
+          for (auto label : labels)
           {
-            if (l == static_cast<uint32_t>(-1) && !is_anti_vertex(v))
+            if (label.second[0] == static_cast<uint32_t>(-1) && !is_anti_vertex(v)) 
             {
               l = Graph::PARTIALLY_LABELLED;
             }
@@ -289,7 +288,6 @@ namespace Peregrine
             true_adj_list[edge.first].push_back(edge.second);
             true_adj_list[edge.second].push_back(edge.first);
         }
-        labels.resize(num_vertices());
 
         // make sure anti_adj_list.at() doesn't fail
         for (auto [v, _] : true_adj_list) anti_adj_list[v];
@@ -299,7 +297,7 @@ namespace Peregrine
        * Note: no anti-edges are passed!
        */
       SmallGraph(const std::unordered_map<uint32_t, std::vector<uint32_t>> &adj,
-          const std::vector<uint32_t> &labels = {0})
+          const std::unordered_map<uint32_t,std::vector<uint32_t>> &labels)
         : true_adj_list(adj),
           labels(labels)
       {
@@ -307,7 +305,8 @@ namespace Peregrine
         {
           labelling = Graph::UNLABELLED;
         }
-        else if (utils::search(labels, static_cast<uint32_t>(-1)))
+        else if (std::find_if(std::begin(labels), std::end(labels),
+        [](auto& p) { return p.second[0] == static_cast<uint32_t>(-1); }) != std::end(labels))
         {
           labelling = Graph::PARTIALLY_LABELLED;
         }
@@ -346,9 +345,12 @@ namespace Peregrine
                 alabel = vs[1]; blabel = vs[3];
                 true_adj_list[a].push_back(b);
                 true_adj_list[b].push_back(a);
-                labels.resize(std::max({(uint32_t)labels.size(), a, b}));
-                labels[a-1] = alabel;
-                labels[b-1] = blabel;
+                if(labels.find(a)==labels.end()) { //TODO: Need to modify this to support vertices with multiple labels rather than just one
+                  labels[a].push_back(alabel); 
+                }
+                if(labels.find(b)==labels.end()) {
+                  labels[b].push_back(blabel);
+                }
               } else if (vs.size() == 5) { // anti-edge with labelled vertices
                 labelling = Graph::LABELLED;
                 uint32_t alabel, blabel;
@@ -356,9 +358,12 @@ namespace Peregrine
                 alabel = vs[1]; blabel = vs[3];
                 anti_adj_list[a].push_back(b);
                 anti_adj_list[b].push_back(a);
-                labels.resize(std::max({(uint32_t)labels.size(), a, b}));
-                labels[a-1] = alabel;
-                labels[b-1] = blabel;
+                if(labels.find(a)==labels.end()) {
+                  labels[a].push_back(alabel); //TODO: Need to modify this to support vertices with multiple labels rather than just one
+                }
+                if(labels.find(b)==labels.end()) {
+                  labels[b].push_back(blabel);
+                }
               }
           }
 
@@ -367,7 +372,8 @@ namespace Peregrine
           }
 
           // check if labelled or partially labelled
-          if (utils::search(labels, static_cast<uint32_t>(-1)))
+          if (std::find_if(std::begin(labels), std::end(labels),
+        [](auto& p) { return p.second[0] == static_cast<uint32_t>(-1); }) != std::end(labels))
           {
             labelling = Graph::PARTIALLY_LABELLED;
           }
@@ -390,9 +396,9 @@ namespace Peregrine
         if (labelling == Graph::PARTIALLY_LABELLED || labelling == Graph::LABELLED)
         {
           // may have added a anti-vertex: in which case we need to give it a label
-          if (v > num_vertices())
+          if (labels.find(v) == labels.end())
           {
-            labels.push_back(static_cast<uint32_t>(-1));
+            labels[v].push_back(static_cast<uint32_t>(-1));
           }
         }
 
@@ -405,18 +411,21 @@ namespace Peregrine
       /**
        * unchecked! may result in duplicate/invalid edges
        */
-      SmallGraph &add_edge(uint32_t u, uint32_t v)
+      // Set 'add_label' to false if you don't want the graph to automatically add an empty label, but only do this if you are certain that you
+      // will set the label for all vertices in the graph using set_label. Set to true by default.
+      SmallGraph &add_edge(uint32_t u, uint32_t v, bool add_label=true)
       {
-
         true_adj_list[u].push_back(v);
         true_adj_list[v].push_back(u);
 
-        if (labelling == Graph::PARTIALLY_LABELLED || labelling == Graph::LABELLED)
-        {
-          // may have added a vertex: in which case we need to give it a label
-          if (v > num_vertices())
+        if(add_label==true) {
+          if (labelling == Graph::PARTIALLY_LABELLED || labelling == Graph::LABELLED)
           {
-            labels.push_back(static_cast<uint32_t>(-3)); // just some random label
+            // may have added a vertex: in which case we need to give it a label
+            if (labels.find(v) == labels.end())
+            {
+              labels[v].push_back(static_cast<uint32_t>(-3)); // just some random label
+            }
           }
         }
 
@@ -426,12 +435,56 @@ namespace Peregrine
         return *this;
       }
 
+      SmallGraph &add_node(uint32_t u, bool add_label=true) {
+        true_adj_list[u];
+        if(add_label==true) {
+          if (labelling == Graph::PARTIALLY_LABELLED || labelling == Graph::LABELLED)
+          {
+            // may have added a vertex: in which case we need to give it a label
+            if (labels.find(u) == labels.end())
+            {
+              labels[u].push_back(static_cast<uint32_t>(-3)); // just some random label
+            }
+          }
+        }
+        anti_adj_list[u];
+        return *this;
+      }
+
+      // add an edge between u and all vertices from the list of vertices
+      SmallGraph &add_multiple_edges(uint32_t u, std::vector<uint32_t> neighbours_of_u, bool add_label=true)
+      {
+        true_adj_list[u].insert(true_adj_list[u].end(), neighbours_of_u.begin(), neighbours_of_u.end());
+        anti_adj_list[u];
+
+        for(auto v: neighbours_of_u) {
+          true_adj_list[v].push_back(u);
+          anti_adj_list[v];
+          if(add_label==true) {
+            if(labelling == Graph::PARTIALLY_LABELLED || labelling == Graph::LABELLED) {
+              if (labels.find(v) == labels.end())
+              {
+                  labels[v].push_back(static_cast<uint32_t>(-3)); // just some random label
+              }
+            }
+          }
+        }
+        return *this;
+      }
+
+      SmallGraph &set_label(uint32_t u, std::vector<uint32_t> l)
+      {
+        labels[u] = l;
+        labelling = l[0] == static_cast<uint32_t>(-1) ? Graph::PARTIALLY_LABELLED : Graph::LABELLED;
+
+        return *this;
+      }
+
       SmallGraph &set_label(uint32_t u, uint32_t l)
       {
-        // resize always: don't assume all edges have already been added
-        labels.resize(std::max({u, num_vertices(), static_cast<uint32_t>(labels.size())}));
-
-        labels[u-1] = l;
+        std::vector<uint32_t> label;
+        label.push_back(l);
+        labels[u] = label;
         labelling = l == static_cast<uint32_t>(-1) ? Graph::PARTIALLY_LABELLED : Graph::LABELLED;
 
         return *this;
@@ -586,9 +639,12 @@ namespace Peregrine
       {
         if (labelling_type() == Graph::PARTIALLY_LABELLED)
         {
-          uint32_t l = std::count(query_graph.labels.cbegin(),
-              query_graph.labels.cend(),
-              static_cast<uint32_t>(-1));
+          uint32_t l;
+          for(auto label : query_graph.labels) {
+            if(label.second[0] == static_cast<uint32_t>(-1)) {
+              l++;
+            }
+          }
 
           if (l > 1)
           {
@@ -742,10 +798,6 @@ namespace Peregrine
           v_cover_graph.anti_adj_list[v];
         }
 
-        if (labelling_type() == Graph::LABELLED || labelling_type() == Graph::PARTIALLY_LABELLED)
-        {
-          v_cover_graph.labels.resize(query_graph.num_vertices());
-        }
         for (const auto &[u, nbrs] : query_graph.true_adj_list)
         {
           for (uint32_t v : nbrs)
@@ -760,8 +812,8 @@ namespace Peregrine
 
               if (labelling_type() == Graph::LABELLED || labelling_type() == Graph::PARTIALLY_LABELLED)
               {
-                v_cover_graph.labels[u-1] = query_graph.labels[u-1];
-                v_cover_graph.labels[v-1] = query_graph.labels[v-1];
+                v_cover_graph.labels[u] = query_graph.labels[u];
+                v_cover_graph.labels[v] = query_graph.labels[v];
               }
             }
             if (!e1 && !e2)
@@ -792,8 +844,8 @@ namespace Peregrine
 
               if (labelling_type() == Graph::LABELLED || labelling_type() == Graph::PARTIALLY_LABELLED)
               {
-                v_cover_graph.labels[u-1] = query_graph.labels[u-1];
-                v_cover_graph.labels[v-1] = query_graph.labels[v-1];
+                v_cover_graph.labels[u] = query_graph.labels[u];
+                v_cover_graph.labels[v] = query_graph.labels[v];
               }
             }
             if (!e1 && !e2)
@@ -846,7 +898,6 @@ namespace Peregrine
             new_vid++;
         }
         SmallGraph n_vseq;
-        n_vseq.labels.resize(new_vid);
         for (auto &v : vseq)
         {
           uint32_t current_vid = v_map.find(v)->second;
@@ -857,7 +908,7 @@ namespace Peregrine
 
             if (labelling_type() == Graph::LABELLED || labelling_type() == Graph::PARTIALLY_LABELLED)
             {
-              n_vseq.labels[new_nbr_vid-1] = patt.labels[old_nbr_vid-1];
+              n_vseq.labels[new_nbr_vid] = patt.labels.at(old_nbr_vid);
             }
 
             n_vseq.true_adj_list[current_vid].push_back(new_nbr_vid);
@@ -872,7 +923,7 @@ namespace Peregrine
 
               if (labelling_type() == Graph::LABELLED || labelling_type() == Graph::PARTIALLY_LABELLED)
               {
-                n_vseq.labels[new_nbr_vid-1] = patt.labels[old_nbr_vid-1];
+                n_vseq.labels[new_nbr_vid] = patt.labels.at(old_nbr_vid);
               }
 
               n_vseq.anti_adj_list[current_vid].push_back(new_nbr_vid);
@@ -1017,8 +1068,8 @@ namespace Peregrine
                 [&degs, &nbr_degs, this](uint32_t a, uint32_t b)
                 {
                   return degs[a] > degs[b]
-                    || (degs[a] == degs[b] && nbr_degs[a] > nbr_degs[b])
-                    || (degs[a] == degs[b] && nbr_degs[a] == nbr_degs[b] && query_graph.labels[a] < query_graph.labels[b]);
+                    || (degs[a] == degs[b] && nbr_degs[a] > nbr_degs[b]) //// TODO: Need to modify this to support vertices with multiple labels rather than just one
+                    || (degs[a] == degs[b] && nbr_degs[a] == nbr_degs[b] && query_graph.labels[a][0] < query_graph.labels[b][0]);
                 });
           }
           else
@@ -1041,7 +1092,7 @@ namespace Peregrine
           {
             for (size_t i = 0; i < max_v; i++)
             {
-              bliss_qg.add_vertex(query_graph.labels[sorted_v[i]]);
+              bliss_qg.add_vertex(query_graph.labels[sorted_v[i]][0]); //TODO: need to update to support more than one label in the future
             }
           }
           else
@@ -1467,7 +1518,7 @@ namespace Peregrine
         vgs[0].set_labelling(labelling_type());
         if (!query_graph.labels.empty())
         {
-          vgs[0].labels = {query_graph.labels[centre-1]};
+          vgs[0].labels[0] = query_graph.labels[centre];
         }
         vmap = {{{}, {centre}}};
         get_bounds();
@@ -1631,25 +1682,25 @@ namespace Peregrine
       }
   };
 
-} // namespace Peregrine
+} // namespace NewGraph
 
 namespace std
 {
 
   template <>
-  struct hash<Peregrine::SmallGraph>
+  struct hash<NewGraph::SmallGraph>
   {
     // Note! this only works if you're comparing the true edges of graphs
-    std::size_t operator()(const Peregrine::SmallGraph &k) const
+    std::size_t operator()(const NewGraph::SmallGraph &k) const
     {
       return k.bliss_hash();
     }
   };
 
   template <>
-  struct equal_to<Peregrine::SmallGraph>
+  struct equal_to<NewGraph::SmallGraph>
   {
-    bool operator()(const Peregrine::SmallGraph &lhs, const Peregrine::SmallGraph &rhs) const
+    bool operator()(const NewGraph::SmallGraph &lhs, const NewGraph::SmallGraph &rhs) const
     {
       return lhs.bliss_graph()->cmp(*rhs.bliss_graph()) == 0;
     }

@@ -9,9 +9,9 @@
 #include <unordered_set>
 #include <stdint.h> // uint32_t
 
-#include "Graph.hh"
+#include "NewGraph.hh"
 
-namespace Peregrine
+namespace NewGraph
 {
 
   struct adjlist
@@ -23,7 +23,6 @@ namespace Peregrine
   };
 
   #define MAX_VERTEX 10'000
-  #define RESTRICT_SIZE 0
   class DataGraph
   {
    public:
@@ -37,21 +36,22 @@ namespace Peregrine
     void set_known_labels(const std::vector<SmallGraph> &patterns);
     void set_known_labels(const std::vector<uint32_t> &labels);
     bool known_label(const uint32_t label) const;
+    bool is_labelled() const;
 
     const std::vector<uint32_t> &get_upper_bounds(uint32_t v) const;
     const std::vector<uint32_t> &get_lower_bounds(uint32_t v) const;
-    const adjlist &get_adj(uint32_t v) const;
+     const adjlist &get_adj(uint32_t v) const;
     uint32_t get_vgs_count() const;
-    uint32_t get_vertex_count() const;
-    uint64_t get_edge_count() const;
+     uint32_t get_vertex_count() const;
+     uint64_t get_edge_count() const;
     const SmallGraph &get_vgs(unsigned fi) const;
     const SmallGraph &get_pattern() const;
     const std::vector<std::vector<uint32_t>> &get_qs(unsigned fi) const;
     uint32_t vmap_at(unsigned fi, uint32_t v, unsigned qsi) const;
-    uint32_t label(uint32_t dv) const;
+    std::vector<uint32_t> label(uint32_t dv) const;
     const std::vector<uint32_t> &get_qo(uint32_t fi) const;
     uint32_t original_id(uint32_t v) const;
-    const std::pair<uint32_t, uint32_t> &get_label_range() const;
+     const std::pair<uint32_t, uint32_t> &get_label_range() const;
 
     AnalyzedPattern rbi;
     uint32_t new_label;
@@ -62,7 +62,7 @@ namespace Peregrine
     uint64_t edge_count;
     unsigned forest_count;
     bool labelled_graph = false;
-    std::unique_ptr<uint32_t[]> labels;
+    std::vector<std::vector<uint32_t>> labels;
     std::pair<uint32_t, uint32_t> label_range;
     std::unique_ptr<uint32_t[]> ids;
     std::unique_ptr<adjlist[]> data_graph;

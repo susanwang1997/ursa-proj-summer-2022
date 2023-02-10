@@ -13,10 +13,10 @@
 #include <filesystem>
 
 #include "utils.hh"
-#include "Graph.hh"
-#include "DataGraph.hh"
+#include "NewGraph.hh"
+#include "NewDataGraph.hh"
 
-#define TRUNCATED 1
+#define TRUNCATED 0
 
 #define RANDOMLY_GENERATE_LABELS_FOR_UNLABELLED_GRAPHS 1
 
@@ -24,7 +24,7 @@
 #include <time.h> 
 
 
-namespace Peregrine
+namespace NewGraph
 {
   void DataGraph::from_smallgraph(const SmallGraph &pp)
   {
@@ -45,18 +45,27 @@ namespace Peregrine
     vertex_count = p.num_vertices();
     edge_count = p.num_true_edges();
 
-    labels = std::make_unique<uint32_t[]>(vertex_count+1);
+    
     if (p.labelling == Graph::LABELLED)
     {
+      std::vector<std::vector<uint32_t>> new_labels(p.num_vertices()+1);
+      uint32_t min = UINT_MAX;
+      uint32_t max = 0;
       labelled_graph = true;
-      for (uint32_t u = 0; u < p.labels.size(); ++u)
+      for (auto labels_in_sg : p.labels)
       {
-        labels[u+1] = p.labels[u];
+        for(auto l : labels_in_sg.second) {
+          if(l<min) {
+            min = l;
+          }
+          if(l>max){
+            max = l;
+          }
+          new_labels[labels_in_sg.first].push_back(l);
+        }
       }
-
-      uint32_t min_label = *std::min_element(p.labels.cbegin(), p.labels.cend());
-      uint32_t max_label = *std::max_element(p.labels.cbegin(), p.labels.cend());
-      label_range = std::make_pair(min_label, max_label);
+      label_range = std::make_pair(min, max);
+      labels = new_labels;
     }
 
 
@@ -138,9 +147,10 @@ namespace Peregrine
         cursor += data_graph[i].length;
       }
 #endif
-      labels = std::make_unique<uint32_t[]>(vertex_count+1);
+      std::vector<std::vector<uint32_t>> new_labels(vertex_count+1);
+      labels = new_labels;
       std::ifstream labels_file(data_graph_path / "labels.bin", std::ios::binary);
-      if (labels_file)
+      if (labels_file)  // TODO: Need to modify this to support vertices with multiple labels rather than just one
       {
         uint32_t min_label = UINT_MAX;
         uint32_t max_label = 0;
@@ -155,24 +165,48 @@ namespace Peregrine
           uint32_t label = buf[1];
           min_label = std::min(min_label, label);
           max_label = std::max(max_label, label);
-          labels[v] = label;
+          labels[v].push_back(label);
         }
 
         label_range = {min_label, max_label};
       }
       else {
-        if(RANDOMLY_GENERATE_LABELS_FOR_UNLABELLED_GRAPHS) {
+        if(RANDOMLY_GENERATE_LABELS_FOR_UNLABELLED_GRAPHS) { //Source on how to generate a skewed distribution: https://stackoverflow.com/questions/2395012/generating-random-numbers-from-skewed-normal-distribution
           uint32_t min_label = UINT_MAX;
           uint32_t max_label = 0;
           if (!labels_file) {
+            std::vector<uint32_t> possible_labels_array;
+            uint32_t counter = 1;
+            for(uint32_t i=0;i<100;i++) {
+              for(uint32_t j=0;j<pow(counter,2);j++) {
+                possible_labels_array.push_back(i); 
+              }
+              counter++;
+            }
+            // for(uint32_t i = 0; i<100; i+=10) {
+            //     uint32_t counts = 0;
+            //     for(uint32_t j=0;j<10;j++) {
+            //         uint32_t num_to_count = i+j;
+            //         counts = counts + count(possible_labels_array.begin(),possible_labels_array.end(),num_to_count);
+            //     }
+            //     std::cout << "(possible_labels_array) number of labels from " << i << " to " << i+9 << " : " << counts << "\n"; 
+            // }
+
             srand (1);
             for (uint32_t i = 1; i <= vertex_count; i++)
             {
-              labels[i] = rand() % 10 + 1;
-              min_label = std::min(min_label, labels[i]);
-              max_label = std::max(max_label, labels[i]);
+              uint32_t num_of_labels_for_vertex = rand() % 5 + 1;
+              for(uint32_t j=0;j<num_of_labels_for_vertex;j++) {
+                double p=((double)rand()/(double)RAND_MAX);
+                uint32_t l = possible_labels_array[floor(p*possible_labels_array.size())];
+                labels[i].push_back(l);
+                min_label = std::min(min_label, l);
+                max_label = std::max(max_label, l);
+              }
             }
+
             label_range = {min_label, max_label};
+            labelled_graph = true;
           }
         }
       }
@@ -228,10 +262,11 @@ namespace Peregrine
     forest_count = rbi.vgs.size();
     if (rbi.labelling_type() == Graph::PARTIALLY_LABELLED)
     {
+      //TODO: Need to modify this to support vertices with multiple labels rather than just one
+      uint32_t empty = static_cast<uint32_t>(-1);
+      std::unordered_map<uint32_t,std::vector<uint32_t>>::const_iterator found = rbi.query_graph.labels.find({empty});
       new_label = std::distance(rbi.query_graph.labels.cbegin(),
-          std::find(rbi.query_graph.labels.cbegin(),
-            rbi.query_graph.labels.cend(), static_cast<uint32_t>(-1))
-          );
+            found);
     }
   }
 
@@ -239,7 +274,12 @@ namespace Peregrine
   {
     for (const auto &p : patterns)
     {
-      known_labels.insert(p.labels.cbegin(), p.labels.cend());
+        std::vector<uint32_t> labels_to_insert;
+        for(auto labels: p.labels) {
+            labels_to_insert.push_back(labels.second[0]); //TODO: Need to modify this to support vertices with multiple labels rather than just one
+        }
+        sort(labels_to_insert.begin(),labels_to_insert.end());
+        known_labels.insert(labels_to_insert.cbegin(), labels_to_insert.cend());
     }
   }
 
@@ -251,6 +291,11 @@ namespace Peregrine
   bool DataGraph::known_label(const uint32_t label) const
   {
     return known_labels.contains(label);
+  }
+
+  bool DataGraph::is_labelled() const 
+  {
+    return labelled_graph;
   }
 
   const std::vector<uint32_t> &DataGraph::get_upper_bounds(uint32_t v) const
@@ -292,7 +337,7 @@ namespace Peregrine
     return rbi.qs[vgsi];
   }
 
-  uint32_t DataGraph::label(uint32_t dv) const
+  std::vector<uint32_t> DataGraph::label(uint32_t dv) const
   {
     return labels[dv];
   }

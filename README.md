@@ -359,7 +359,6 @@ Peregrine's data processor ingests graph edge-lists and stores them in binary
 adjacency-list format. For labeled data graphs, a separate file of vertex-label
 pairs is used. Both vertex ID's and labels should be unsigned 32-bit integers.
 
-
 Edge-list file format:
 ```
 <vertex-id> <vertex-id>
@@ -378,8 +377,10 @@ $ mkdir data/my-graph
 $ make convert_data
 $ bin/convert_data edges.txt labels.txt data/my-graph/
 ```
+NOTE: For your `edges.txt` file, there should be a newline after the last edge for the converter to convert the graph properly.
 
 To convert an unlabeled dataset, `labels.txt` can be omitted.
+
 
 ## 4. Reproducing our EuroSys 2020 paper results
 
